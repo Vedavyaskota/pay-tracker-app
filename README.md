@@ -10,13 +10,15 @@ A mobile-first web app to track work hours and pay.
 
 ## Using it on your phone
 
-The app is a single `index.html` — it needs to be served over HTTPS to install as a home-screen app.
+**App link: https://vedavyaskota.github.io/pay-tracker-app/**
 
-Options:
-- **GitHub Pages** (easiest): requires the repo to be public, or a GitHub Pro plan for private-repo Pages. Settings → Pages → deploy from `main` branch.
-- **Netlify / Vercel / Cloudflare Pages**: all can deploy from a private GitHub repo on their free plans.
+Open it on your phone, then Share → **Add to Home Screen** to use it like a native app.
 
-Once it's open on your phone: Share → **Add to Home Screen** to use it like a native app.
+The app lives in two repos:
+- [`pay-tracker-app`](https://github.com/Vedavyaskota/pay-tracker-app) (public) — code only, serves the app via GitHub Pages. Never contains personal data.
+- [`pay-tracker`](https://github.com/Vedavyaskota/pay-tracker) (private) — the same code **plus your data backups** (`data/` folder, written by the in-app "Back up to GitHub" button).
+
+Your hours and pay data live only on your device, in your Google Sheet, and in the private repo.
 
 ## First-time setup in the app (Settings tab)
 
