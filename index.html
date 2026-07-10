@@ -105,20 +105,27 @@
   .day .name span { color: var(--muted); font-weight: 500; font-size: 13px; margin-left: 6px; }
   .day .pay { font-weight: 700; font-size: 15px; color: var(--green); }
   .day .pay.zero { color: var(--muted); font-weight: 500; }
-  .times { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
-  .field { flex: 1 1 130px; min-width: 0; }
+  .times { display: grid; grid-template-columns: 1fr 1fr 68px; gap: 8px; }
+  .field { min-width: 0; }
   .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; }
   .field input {
-    width: 100%; padding: 11px 8px; border-radius: 10px;
+    width: 100%; padding: 10px 6px; border-radius: 10px;
     border: 1px solid var(--border); background: var(--card2); color: var(--text);
-    font-size: 15px; font-family: inherit; -webkit-appearance: none; appearance: none; min-height: 44px;
+    /* 16px stops iOS Safari from auto-zooming when a field is tapped */
+    font-size: 16px; font-family: inherit; -webkit-appearance: none; appearance: none; min-height: 44px;
   }
-  .field.brk { flex: 1 1 74px; }
-  .clear-btn {
-    flex: 0 0 44px; height: 44px; border-radius: 10px;
-    border: 1px solid var(--border); background: var(--card2); color: var(--muted); font-size: 16px;
+  .day .foot {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 8px; margin-top: 9px;
   }
-  .day .hours-line { margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .day .hours-line { font-size: 12px; color: var(--muted); min-width: 0; }
+  .mini-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .mini {
+    padding: 5px 12px; border-radius: 8px; min-height: 28px;
+    border: 1px solid var(--border); background: var(--card2); color: var(--text);
+    font-size: 12px; font-weight: 600;
+  }
+  .mini.danger { color: var(--danger); padding: 5px 9px; }
 
   /* months */
   .month-card {
@@ -143,7 +150,7 @@
   .setting input[type=text], .setting input[type=number], .setting input[type=password], .setting input[type=url] {
     width: 100%; padding: 11px 12px; border-radius: 10px;
     border: 1px solid var(--border); background: var(--card2); color: var(--text);
-    font-size: 15px; min-height: 44px;
+    font-size: 16px; min-height: 44px; /* 16px prevents iOS focus zoom */
   }
   .switch-row { display: flex; justify-content: space-between; align-items: center; }
   .switch-row label { margin-bottom: 0; }
@@ -460,12 +467,32 @@ function renderWeek() {
       '<div class="times">' +
       '<div class="field"><label>Clock in</label><input type="time" data-k="' + key + '" data-f="in" value="' + (e.in || "") + '"></div>' +
       '<div class="field"><label>Clock out</label><input type="time" data-k="' + key + '" data-f="out" value="' + (e.out || "") + '"></div>' +
-      '<div class="field brk"><label>Break m</label><input type="number" inputmode="numeric" min="0" placeholder="0" data-k="' + key + '" data-f="brk" value="' + (e.brk || "") + '"></div>' +
-      '<button class="clear-btn" data-clear="' + key + '" aria-label="Clear day">✕</button>' +
+      '<div class="field"><label>Break m</label><input type="number" inputmode="numeric" min="0" placeholder="0" data-k="' + key + '" data-f="brk" value="' + (e.brk || "") + '"></div>' +
       "</div>" +
-      (mins ? '<div class="hours-line">' + (mins / 60).toFixed(2) + " hours" + (e.brk ? " (after " + e.brk + " min break)" : "") + "</div>" : "");
+      footHTML(key, e, mins);
     list.appendChild(card);
   }
+}
+
+/* copy/paste a day's times across days (survives app restarts) */
+let clip = JSON.parse(localStorage.getItem("pt_clip_v1") || "null");
+
+function fmt12(t) {
+  if (!t) return "";
+  const [h, m] = t.split(":").map(Number);
+  const ampm = h >= 12 ? "PM" : "AM";
+  return ((h % 12) || 12) + ":" + String(m).padStart(2, "0") + " " + ampm;
+}
+
+function footHTML(key, e, mins) {
+  const hasData = !!(e.in || e.out || e.brk);
+  const hours = mins ? (mins / 60).toFixed(2) + " hours" + (e.brk ? " (after " + e.brk + " min break)" : "") : "";
+  const btns =
+    (hasData ? '<button class="mini" data-copy="' + key + '">Copy</button>' : "") +
+    (clip ? '<button class="mini" data-paste="' + key + '">Paste</button>' : "") +
+    (hasData ? '<button class="mini danger" data-clear="' + key + '" aria-label="Clear day">✕</button>' : "");
+  if (!hours && !btns) return "";
+  return '<div class="foot"><span class="hours-line">' + hours + '</span><span class="mini-actions">' + btns + "</span></div>";
 }
 
 document.getElementById("dayList").addEventListener("change", ev => {
@@ -479,11 +506,24 @@ document.getElementById("dayList").addEventListener("change", ev => {
   renderAll();
 });
 document.getElementById("dayList").addEventListener("click", ev => {
-  const key = ev.target.dataset && ev.target.dataset.clear;
-  if (!key) return;
-  delete entries[key];
-  saveEntries();
-  renderAll();
+  const btn = ev.target.closest("button");
+  if (!btn) return;
+  if (btn.dataset.copy) {
+    const e = entries[btn.dataset.copy] || {};
+    clip = { in: e.in || "", out: e.out || "", brk: e.brk || "" };
+    localStorage.setItem("pt_clip_v1", JSON.stringify(clip));
+    toast("Copied " + fmt12(clip.in) + " – " + fmt12(clip.out) + " — tap Paste on other days");
+    renderWeek();
+  } else if (btn.dataset.paste) {
+    if (!clip) return;
+    entries[btn.dataset.paste] = { ...clip };
+    saveEntries();
+    renderAll();
+  } else if (btn.dataset.clear) {
+    delete entries[btn.dataset.clear];
+    saveEntries();
+    renderAll();
+  }
 });
 document.getElementById("prevWeek").onclick = () => { viewWeekStart = addDays(viewWeekStart, -7); renderWeek(); };
 document.getElementById("nextWeek").onclick = () => { viewWeekStart = addDays(viewWeekStart, 7); renderWeek(); };
