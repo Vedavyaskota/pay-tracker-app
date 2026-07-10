@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Pay Tracker</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  :root {
+    --bg: #0e1116;
+    --card: #171c24;
+    --card2: #1e2530;
+    --text: #e8edf4;
+    --muted: #8b96a5;
+    --accent: #4f9cf9;
+    --green: #34c98e;
+    --amber: #f5b94e;
+    --danger: #f06a6a;
+    --border: #2a3342;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f2f4f8;
+      --card: #ffffff;
+      --card2: #eef1f6;
+      --text: #1b2430;
+      --muted: #5d6b7d;
+      --border: #d8dfe8;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: calc(70px + env(safe-area-inset-bottom));
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--bg);
+    padding: calc(14px + env(safe-area-inset-top)) 16px 10px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 18px; font-weight: 700; }
+  header .sub { font-size: 12px; color: var(--muted); }
+  main { padding: 14px 14px 20px; max-width: 560px; margin: 0 auto; }
+  .tabpage { display: none; }
+  .tabpage.active { display: block; }
+
+  /* week nav */
+  .weeknav {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px; gap: 8px;
+  }
+  .weeknav button {
+    background: var(--card); border: 1px solid var(--border); color: var(--text);
+    width: 42px; height: 42px; border-radius: 12px; font-size: 18px;
+  }
+  .weeknav .label { text-align: center; flex: 1; }
+  .weeknav .label .range { font-weight: 700; font-size: 15px; }
+  .weeknav .label .today-btn {
+    background: none; border: none; width: auto; height: auto;
+    color: var(--accent); font-size: 12px; margin-top: 2px; padding: 2px 6px;
+  }
+
+  /* summary card */
+  .summary {
+    background: linear-gradient(135deg, var(--card), var(--card2));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px; margin-bottom: 14px;
+  }
+  .summary .big { font-size: 32px; font-weight: 800; letter-spacing: -0.5px; }
+  .summary .big small { font-size: 15px; color: var(--muted); font-weight: 600; }
+  .summary .row {
+    display: flex; justify-content: space-between; margin-top: 10px;
+    font-size: 13px; color: var(--muted);
+  }
+  .summary .row b { color: var(--text); font-weight: 600; }
+  .payday-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 12px; padding: 7px 12px; border-radius: 99px;
+    background: rgba(52, 201, 142, 0.12); color: var(--green);
+    font-size: 13px; font-weight: 600;
+  }
+
+  /* day cards */
+  .day {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+  }
+  .day.today { border-color: var(--accent); }
+  .day .top {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .day .name { font-weight: 700; font-size: 15px; }
+  .day .name span { color: var(--muted); font-weight: 500; font-size: 13px; margin-left: 6px; }
+  .day .pay { font-weight: 700; font-size: 15px; color: var(--green); }
+  .day .pay.zero { color: var(--muted); font-weight: 500; }
+  .times { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+  .field { flex: 1 1 130px; min-width: 0; }
+  .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .field input {
+    width: 100%; padding: 11px 8px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--card2); color: var(--text);
+    font-size: 15px; font-family: inherit; -webkit-appearance: none; appearance: none; min-height: 44px;
+  }
+  .field.brk { flex: 1 1 74px; }
+  .clear-btn {
+    flex: 0 0 44px; height: 44px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--card2); color: var(--muted); font-size: 16px;
+  }
+  .day .hours-line { margin-top: 8px; font-size: 12px; color: var(--muted); }
+
+  /* months */
+  .month-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .month-card .m { font-weight: 700; }
+  .month-card .h { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .month-card .p { font-weight: 800; font-size: 18px; color: var(--green); }
+  .empty { text-align: center; color: var(--muted); padding: 40px 20px; font-size: 14px; }
+
+  /* settings */
+  .group {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px;
+  }
+  .group h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 12px; }
+  .setting { margin-bottom: 12px; }
+  .setting:last-child { margin-bottom: 0; }
+  .setting label { display: block; font-size: 13px; margin-bottom: 5px; }
+  .setting input[type=text], .setting input[type=number], .setting input[type=password], .setting input[type=url] {
+    width: 100%; padding: 11px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--card2); color: var(--text);
+    font-size: 15px; min-height: 44px;
+  }
+  .switch-row { display: flex; justify-content: space-between; align-items: center; }
+  .switch-row label { margin-bottom: 0; }
+  input[type=checkbox].toggle {
+    width: 50px; height: 30px; -webkit-appearance: none; appearance: none;
+    background: var(--card2); border: 1px solid var(--border); border-radius: 99px;
+    position: relative; transition: background 0.2s;
+  }
+  input[type=checkbox].toggle:checked { background: var(--accent); }
+  input[type=checkbox].toggle::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px;
+    border-radius: 50%; background: #fff; transition: left 0.2s;
+  }
+  input[type=checkbox].toggle:checked::after { left: 24px; }
+  .btn {
+    display: block; width: 100%; padding: 13px; border-radius: 12px;
+    border: none; font-size: 15px; font-weight: 700; margin-bottom: 10px;
+    background: var(--accent); color: #fff; min-height: 48px;
+  }
+  .btn.secondary { background: var(--card2); color: var(--text); border: 1px solid var(--border); }
+  .btn.green { background: var(--green); color: #06281c; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .hint a { color: var(--accent); }
+
+  /* tab bar */
+  nav {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+    display: flex; background: var(--card);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav button {
+    flex: 1; background: none; border: none; color: var(--muted);
+    padding: 10px 0 8px; font-size: 11px; font-weight: 600;
+  }
+  nav button .ico { display: block; font-size: 20px; margin-bottom: 2px; }
+  nav button.active { color: var(--accent); }
+
+  /* toast */
+  #toast {
+    position: fixed; bottom: calc(84px + env(safe-area-inset-bottom)); left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--card2); color: var(--text); border: 1px solid var(--border);
+    padding: 11px 18px; border-radius: 99px; font-size: 13px; font-weight: 600;
+    opacity: 0; transition: all 0.25s; pointer-events: none; z-index: 50;
+    max-width: 86vw; text-align: center;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.err { border-color: var(--danger); color: var(--danger); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Pay Tracker</h1>
+    <div class="sub" id="headerSub">Mon–Sun week · paid next Friday</div>
+  </div>
+</header>
+
+<main>
+  <!-- WEEK TAB -->
+  <section class="tabpage active" id="page-week">
+    <div class="weeknav">
+      <button id="prevWeek" aria-label="Previous week">‹</button>
+      <div class="label">
+        <div class="range" id="weekRange"></div>
+        <button class="today-btn" id="goToday">go to this week</button>
+      </div>
+      <button id="nextWeek" aria-label="Next week">›</button>
+    </div>
+
+    <div class="summary">
+      <div class="big" id="weekPay"></div>
+      <div class="row"><span>Hours worked</span><b id="weekHours"></b></div>
+      <div class="row" id="otRow" style="display:none"><span>Overtime hours</span><b id="weekOT"></b></div>
+      <div class="row"><span>Days worked</span><b id="weekDays"></b></div>
+      <div class="payday-chip" id="paydayChip"></div>
+    </div>
+
+    <div id="dayList"></div>
+  </section>
+
+  <!-- MONTHS TAB -->
+  <section class="tabpage" id="page-months">
+    <div class="summary">
+      <div class="big" id="ytdPay"></div>
+      <div class="row"><span>Total hours this year</span><b id="ytdHours"></b></div>
+    </div>
+    <div id="monthList"></div>
+  </section>
+
+  <!-- SETTINGS TAB -->
+  <section class="tabpage" id="page-settings">
+    <div class="group">
+      <h3>Pay</h3>
+      <div class="setting">
+        <label for="setRate">Hourly rate</label>
+        <input type="number" id="setRate" inputmode="decimal" step="0.01" min="0">
+      </div>
+      <div class="setting">
+        <label for="setCur">Currency symbol</label>
+        <input type="text" id="setCur" maxlength="4">
+      </div>
+      <div class="setting switch-row">
+        <label for="setOT">Overtime pay</label>
+        <input type="checkbox" class="toggle" id="setOT">
+      </div>
+      <div id="otSettings" style="display:none">
+        <div class="setting">
+          <label for="setOTAfter">Overtime after (hours per week)</label>
+          <input type="number" id="setOTAfter" inputmode="decimal" min="0">
+        </div>
+        <div class="setting">
+          <label for="setOTMult">Overtime multiplier (e.g. 1.5)</label>
+          <input type="number" id="setOTMult" inputmode="decimal" step="0.1" min="1">
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h3>Google Sheet sync</h3>
+      <div class="setting">
+        <label for="setWebhook">Apps Script web app URL</label>
+        <input type="url" id="setWebhook" placeholder="https://script.google.com/macros/s/…/exec">
+        <div class="hint">One-time setup: see README in the repo — create a Google Sheet, paste the provided Apps Script, deploy as web app, and paste the URL here.</div>
+      </div>
+      <button class="btn green" id="btnSync">Sync to Google Sheet</button>
+    </div>
+
+    <div class="group">
+      <h3>GitHub backup</h3>
+      <div class="setting">
+        <label for="setGhRepo">Repository (owner/name)</label>
+        <input type="text" id="setGhRepo" placeholder="username/pay-tracker" autocapitalize="none">
+      </div>
+      <div class="setting">
+        <label for="setGhToken">Personal access token</label>
+        <input type="password" id="setGhToken" placeholder="ghp_… or github_pat_…" autocapitalize="none">
+        <div class="hint">Fine-grained token with Contents read/write on your private repo. Stored only on this device.</div>
+      </div>
+      <button class="btn secondary" id="btnBackup">Back up data to GitHub</button>
+    </div>
+
+    <div class="group">
+      <h3>Data</h3>
+      <button class="btn secondary" id="btnCSV">Download CSV</button>
+      <button class="btn secondary" id="btnExport">Export data (JSON)</button>
+      <button class="btn secondary" id="btnImport">Import data (JSON)</button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button data-tab="week" class="active"><span class="ico">📅</span>Week</button>
+  <button data-tab="months"><span class="ico">📊</span>Months</button>
+  <button data-tab="settings"><span class="ico">⚙️</span>Settings</button>
+</nav>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+/* ---------- storage ---------- */
+const ENTRIES_KEY = "pt_entries_v1";
+const SETTINGS_KEY = "pt_settings_v1";
+
+const defaults = { rate: 20, cur: "$", ot: false, otAfter: 40, otMult: 1.5, webhook: "", ghRepo: "", ghToken: "" };
+let settings = { ...defaults, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")) };
+let entries = JSON.parse(localStorage.getItem(ENTRIES_KEY) || "{}");
+
+function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
+function saveEntries() { localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries)); }
+
+/* ---------- dates ---------- */
+const DAY_MS = 86400000;
+const dayNames = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+
+function iso(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function fromISO(s) {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function mondayOf(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return x;
+}
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+/* payday = Friday of the week AFTER the Mon–Sun work week (Monday + 11 days) */
+function paydayOf(weekStart) { return addDays(weekStart, 11); }
+function fmtShort(d) { return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
+function fmtLong(d) { return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }); }
+
+/* ---------- pay math ---------- */
+function entryMinutes(e) {
+  if (!e || !e.in || !e.out) return 0;
+  const [ih, im] = e.in.split(":").map(Number);
+  const [oh, om] = e.out.split(":").map(Number);
+  let mins = (oh * 60 + om) - (ih * 60 + im);
+  if (mins <= 0) mins += 1440; /* overnight shift */
+  mins -= (Number(e.brk) || 0);
+  return Math.max(0, mins);
+}
+
+function money(n) {
+  return settings.cur + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/* returns { hours, regHours, otHours, pay, perDayPay: {iso: pay} } for a week */
+function weekStats(weekStart) {
+  let totalMin = 0;
+  const dayMin = {};
+  for (let i = 0; i < 7; i++) {
+    const key = iso(addDays(weekStart, i));
+    const m = entryMinutes(entries[key]);
+    dayMin[key] = m;
+    totalMin += m;
+  }
+  const hours = totalMin / 60;
+  let regHours = hours, otHours = 0;
+  if (settings.ot && hours > settings.otAfter) {
+    regHours = settings.otAfter;
+    otHours = hours - settings.otAfter;
+  }
+  const pay = regHours * settings.rate + otHours * settings.rate * settings.otMult;
+  /* distribute week pay across days proportional to hours (matters when OT is on) */
+  const perDayPay = {};
+  for (const k in dayMin) perDayPay[k] = totalMin ? pay * (dayMin[k] / totalMin) : 0;
+  return { hours, regHours, otHours, pay, dayMin, perDayPay };
+}
+
+/* aggregate every entry into per-month totals, respecting weekly OT */
+function monthlyTotals() {
+  const weekStarts = new Set();
+  for (const k in entries) {
+    if (entries[k] && entries[k].in && entries[k].out) weekStarts.add(iso(mondayOf(fromISO(k))));
+  }
+  const months = {}; /* "2026-07" -> {min, pay} */
+  for (const ws of weekStarts) {
+    const stats = weekStats(fromISO(ws));
+    for (const k in stats.dayMin) {
+      if (!stats.dayMin[k]) continue;
+      const mk = k.slice(0, 7);
+      months[mk] = months[mk] || { min: 0, pay: 0 };
+      months[mk].min += stats.dayMin[k];
+      months[mk].pay += stats.perDayPay[k];
+    }
+  }
+  return months;
+}
+
+/* ---------- week view ---------- */
+let viewWeekStart = mondayOf(new Date());
+
+function renderWeek() {
+  const ws = viewWeekStart;
+  const we = addDays(ws, 6);
+  document.getElementById("weekRange").textContent =
+    fmtShort(ws) + " – " + fmtShort(we) + (we.getFullYear() !== new Date().getFullYear() ? ", " + we.getFullYear() : "");
+
+  const stats = weekStats(ws);
+  document.getElementById("weekPay").innerHTML = money(stats.pay) + " <small>this week</small>";
+  document.getElementById("weekHours").textContent = stats.hours.toFixed(2) + " h";
+  const otRow = document.getElementById("otRow");
+  if (settings.ot && stats.otHours > 0) {
+    otRow.style.display = "flex";
+    document.getElementById("weekOT").textContent = stats.otHours.toFixed(2) + " h × " + settings.otMult;
+  } else otRow.style.display = "none";
+  const daysWorked = Object.values(stats.dayMin).filter(m => m > 0).length;
+  document.getElementById("weekDays").textContent = daysWorked + " / 7";
+
+  const pd = paydayOf(ws);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((pd - today) / DAY_MS);
+  let when = diff === 0 ? "today!" : diff === 1 ? "tomorrow" : diff > 1 ? "in " + diff + " days" : Math.abs(diff) + " days ago";
+  document.getElementById("paydayChip").textContent = "💵 Payday: " + fmtLong(pd) + " (" + when + ")";
+
+  const list = document.getElementById("dayList");
+  list.innerHTML = "";
+  const todayISO = iso(new Date());
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(ws, i);
+    const key = iso(d);
+    const e = entries[key] || {};
+    const mins = stats.dayMin[key];
+    const card = document.createElement("div");
+    card.className = "day" + (key === todayISO ? " today" : "");
+    card.innerHTML =
+      '<div class="top"><div class="name">' + dayNames[i] + "<span>" + fmtShort(d) + '</span></div>' +
+      '<div class="pay ' + (mins ? "" : "zero") + '">' + (mins ? money(stats.perDayPay[key]) : "—") + "</div></div>" +
+      '<div class="times">' +
+      '<div class="field"><label>Clock in</label><input type="time" data-k="' + key + '" data-f="in" value="' + (e.in || "") + '"></div>' +
+      '<div class="field"><label>Clock out</label><input type="time" data-k="' + key + '" data-f="out" value="' + (e.out || "") + '"></div>' +
+      '<div class="field brk"><label>Break m</label><input type="number" inputmode="numeric" min="0" placeholder="0" data-k="' + key + '" data-f="brk" value="' + (e.brk || "") + '"></div>' +
+      '<button class="clear-btn" data-clear="' + key + '" aria-label="Clear day">✕</button>' +
+      "</div>" +
+      (mins ? '<div class="hours-line">' + (mins / 60).toFixed(2) + " hours" + (e.brk ? " (after " + e.brk + " min break)" : "") + "</div>" : "");
+    list.appendChild(card);
+  }
+}
+
+document.getElementById("dayList").addEventListener("change", ev => {
+  const t = ev.target;
+  if (!t.dataset.k) return;
+  const key = t.dataset.k;
+  entries[key] = entries[key] || {};
+  entries[key][t.dataset.f] = t.value;
+  if (!entries[key].in && !entries[key].out && !entries[key].brk) delete entries[key];
+  saveEntries();
+  renderAll();
+});
+document.getElementById("dayList").addEventListener("click", ev => {
+  const key = ev.target.dataset && ev.target.dataset.clear;
+  if (!key) return;
+  delete entries[key];
+  saveEntries();
+  renderAll();
+});
+document.getElementById("prevWeek").onclick = () => { viewWeekStart = addDays(viewWeekStart, -7); renderWeek(); };
+document.getElementById("nextWeek").onclick = () => { viewWeekStart = addDays(viewWeekStart, 7); renderWeek(); };
+document.getElementById("goToday").onclick = () => { viewWeekStart = mondayOf(new Date()); renderWeek(); };
+
+/* ---------- months view ---------- */
+function renderMonths() {
+  const months = monthlyTotals();
+  const keys = Object.keys(months).sort().reverse();
+  const list = document.getElementById("monthList");
+  list.innerHTML = "";
+  const yr = String(new Date().getFullYear());
+  let ytdPay = 0, ytdMin = 0;
+  for (const k of keys) {
+    if (k.startsWith(yr)) { ytdPay += months[k].pay; ytdMin += months[k].min; }
+    const [y, m] = k.split("-");
+    const label = new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    const card = document.createElement("div");
+    card.className = "month-card";
+    card.innerHTML = '<div><div class="m">' + label + '</div><div class="h">' + (months[k].min / 60).toFixed(2) + " hours</div></div>" +
+      '<div class="p">' + money(months[k].pay) + "</div>";
+    list.appendChild(card);
+  }
+  if (!keys.length) list.innerHTML = '<div class="empty">No entries yet.<br>Add clock in / out times on the Week tab.</div>';
+  document.getElementById("ytdPay").innerHTML = money(ytdPay) + " <small>earned in " + yr + "</small>";
+  document.getElementById("ytdHours").textContent = (ytdMin / 60).toFixed(2) + " h";
+}
+
+/* ---------- settings ---------- */
+function bindSetting(id, key, isNum, onChange) {
+  const el = document.getElementById(id);
+  el.value = settings[key];
+  el.addEventListener("change", () => {
+    settings[key] = isNum ? (Number(el.value) || 0) : el.value.trim();
+    saveSettings();
+    if (onChange) onChange();
+    renderAll();
+  });
+}
+bindSetting("setRate", "rate", true);
+bindSetting("setCur", "cur", false);
+bindSetting("setOTAfter", "otAfter", true);
+bindSetting("setOTMult", "otMult", true);
+bindSetting("setWebhook", "webhook", false);
+bindSetting("setGhRepo", "ghRepo", false);
+bindSetting("setGhToken", "ghToken", false);
+const otToggle = document.getElementById("setOT");
+otToggle.checked = settings.ot;
+document.getElementById("otSettings").style.display = settings.ot ? "block" : "none";
+otToggle.addEventListener("change", () => {
+  settings.ot = otToggle.checked;
+  document.getElementById("otSettings").style.display = settings.ot ? "block" : "none";
+  saveSettings();
+  renderAll();
+});
+
+/* ---------- export rows (shared by CSV + sheet sync) ---------- */
+function buildRows() {
+  const keys = Object.keys(entries).filter(k => entries[k].in && entries[k].out).sort();
+  const weekCache = {};
+  return keys.map(k => {
+    const d = fromISO(k);
+    const ws = iso(mondayOf(d));
+    if (!weekCache[ws]) weekCache[ws] = weekStats(fromISO(ws));
+    const st = weekCache[ws];
+    const e = entries[k];
+    return [k, dayNames[(d.getDay() + 6) % 7], e.in, e.out, Number(e.brk) || 0,
+      Number((st.dayMin[k] / 60).toFixed(2)), Number(st.perDayPay[k].toFixed(2)),
+      ws, iso(paydayOf(fromISO(ws)))];
+  });
+}
+function buildMonthly() {
+  const months = monthlyTotals();
+  return Object.keys(months).sort().map(k => [k, Number((months[k].min / 60).toFixed(2)), Number(months[k].pay.toFixed(2))]);
+}
+const HEADERS = ["Date","Day","Clock In","Clock Out","Break (min)","Hours","Pay","Week Start","Payday"];
+
+/* ---------- toast ---------- */
+let toastTimer;
+function toast(msg, isErr) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "show" + (isErr ? " err" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ""; }, 3500);
+}
+
+/* ---------- CSV ---------- */
+document.getElementById("btnCSV").onclick = () => {
+  const rows = [HEADERS, ...buildRows(), [], ["Month","Total Hours","Total Pay"], ...buildMonthly()];
+  const csv = rows.map(r => r.map(c => '"' + String(c ?? "").replace(/"/g, '""') + '"').join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "pay-tracker.csv";
+  a.click();
+  toast("CSV downloaded");
+};
+
+/* ---------- JSON export / import ---------- */
+document.getElementById("btnExport").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify({ entries, settings: { ...settings, ghToken: "" } }, null, 2)], { type: "application/json" }));
+  a.download = "pay-tracker-backup.json";
+  a.click();
+  toast("Backup file downloaded");
+};
+document.getElementById("btnImport").onclick = () => document.getElementById("importFile").click();
+document.getElementById("importFile").addEventListener("change", ev => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  f.text().then(txt => {
+    const data = JSON.parse(txt);
+    if (!data.entries) throw new Error("bad file");
+    entries = data.entries;
+    saveEntries();
+    renderAll();
+    toast("Data imported: " + Object.keys(entries).length + " days");
+  }).catch(() => toast("Could not read that file", true));
+  ev.target.value = "";
+});
+
+/* ---------- Google Sheet sync ---------- */
+document.getElementById("btnSync").onclick = async () => {
+  if (!settings.webhook) return toast("Add your Apps Script URL first (see README)", true);
+  const payload = { headers: HEADERS, rows: buildRows(), monthly: buildMonthly(), currency: settings.cur };
+  toast("Syncing…");
+  try {
+    /* text/plain avoids a CORS preflight that Apps Script can't answer */
+    const res = await fetch(settings.webhook, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(payload) });
+    const out = await res.json();
+    if (!out.ok) throw new Error(out.error || "sync failed");
+    toast("Synced " + payload.rows.length + " days to your Google Sheet ✓");
+  } catch (err) {
+    toast("Sync failed: " + err.message, true);
+  }
+};
+
+/* ---------- GitHub backup ---------- */
+async function ghPut(path, contentStr, message) {
+  const url = "https://api.github.com/repos/" + settings.ghRepo + "/contents/" + path;
+  const headers = { Authorization: "Bearer " + settings.ghToken, Accept: "application/vnd.github+json" };
+  let sha;
+  const probe = await fetch(url, { headers });
+  if (probe.ok) sha = (await probe.json()).sha;
+  const body = { message, content: btoa(unescape(encodeURIComponent(contentStr))) };
+  if (sha) body.sha = sha;
+  const res = await fetch(url, { method: "PUT", headers, body: JSON.stringify(body) });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error(e.message || ("HTTP " + res.status));
+  }
+}
+document.getElementById("btnBackup").onclick = async () => {
+  if (!settings.ghRepo || !settings.ghToken) return toast("Add repo + token in settings first", true);
+  toast("Backing up…");
+  const stamp = iso(new Date());
+  const csv = [HEADERS, ...buildRows(), [], ["Month","Total Hours","Total Pay"], ...buildMonthly()]
+    .map(r => r.map(c => '"' + String(c ?? "").replace(/"/g, '""') + '"').join(",")).join("\n");
+  try {
+    await ghPut("data/backup.json", JSON.stringify({ entries, updated: stamp }, null, 2), "Data backup " + stamp);
+    await ghPut("data/pay-log.csv", csv, "Pay log " + stamp);
+    toast("Backed up to GitHub ✓");
+  } catch (err) {
+    toast("Backup failed: " + err.message, true);
+  }
+};
+
+/* ---------- tabs ---------- */
+document.querySelectorAll("nav button").forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".tabpage").forEach(p => p.classList.toggle("active", p.id === "page-" + btn.dataset.tab));
+    renderAll();
+  };
+});
+
+function renderAll() { renderWeek(); renderMonths(); }
+renderAll();
+
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>
