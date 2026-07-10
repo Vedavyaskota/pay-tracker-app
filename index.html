@@ -279,6 +279,16 @@
   <!-- SETTINGS TAB -->
   <section class="tabpage" id="page-settings">
     <div class="group">
+      <h3>Connect this device</h3>
+      <div class="setting">
+        <label for="setupCode">Setup link</label>
+        <input type="text" id="setupCode" placeholder="Paste your setup link here" autocapitalize="none" autocorrect="off">
+        <div class="hint">New phone, or added to home screen and data missing? Paste your personal setup link here and tap Connect — your data loads from your Google Sheet.</div>
+      </div>
+      <button class="btn" id="btnApplySetup">Connect</button>
+    </div>
+
+    <div class="group">
       <h3>Pay</h3>
       <div class="setting">
         <label for="setRate">Hourly rate</label>
@@ -379,20 +389,23 @@ function saveMeta() { localStorage.setItem("pt_meta_v1", JSON.stringify(meta)); 
 function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
 function saveEntries() { localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries)); }
 
-/* one-tap setup link: open the app as .../#cfg=<base64 JSON of settings>
-   to pre-fill settings (e.g. the Google Sheet webhook) without typing */
+/* one-tap setup: .../#cfg=<base64 JSON of settings> pre-fills settings
+   (webhook, token, repo) without typing. The same code can be pasted into
+   Settings → Connect this device — needed on iPhone home-screen apps,
+   which get separate storage and always open the plain URL. */
+function applyCfg(b64) {
+  const cfg = JSON.parse(atob(decodeURIComponent(b64.trim())));
+  let applied = 0;
+  for (const k in defaults) {
+    if (cfg[k] !== undefined && typeof cfg[k] === typeof defaults[k]) { settings[k] = cfg[k]; applied++; }
+  }
+  if (applied) saveSettings();
+  return applied;
+}
 try {
   const cfgMatch = location.hash.match(/^#cfg=(.+)$/);
   if (cfgMatch) {
-    const cfg = JSON.parse(atob(decodeURIComponent(cfgMatch[1])));
-    let applied = 0;
-    for (const k in defaults) {
-      if (cfg[k] !== undefined && typeof cfg[k] === typeof defaults[k]) { settings[k] = cfg[k]; applied++; }
-    }
-    if (applied) {
-      saveSettings();
-      setTimeout(() => toast("Setup link applied — settings saved ✓"), 500);
-    }
+    if (applyCfg(cfgMatch[1])) setTimeout(() => toast("Setup link applied — settings saved ✓"), 500);
     history.replaceState(null, "", location.pathname + location.search);
   }
 } catch (e) { /* malformed setup link: ignore */ }
@@ -853,6 +866,19 @@ async function cloudLoad() {
 }
 
 document.getElementById("btnSync").onclick = () => { toast("Syncing…"); cloudSave(true); };
+
+document.getElementById("btnApplySetup").onclick = () => {
+  const raw = document.getElementById("setupCode").value.trim();
+  if (!raw) return toast("Paste your setup link first", true);
+  const m = raw.match(/#cfg=([^\s&?]+)/);
+  try {
+    if (!applyCfg(m ? m[1] : raw)) throw new Error("nothing applied");
+    toast("Connected ✓ — loading your data…");
+    setTimeout(() => location.reload(), 900); /* reboot so settings fields + sheet load pick it up */
+  } catch (e) {
+    toast("That doesn't look like a valid setup link", true);
+  }
+};
 
 cloudLoad();
 document.addEventListener("visibilitychange", () => {
