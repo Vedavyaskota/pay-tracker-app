@@ -33,13 +33,13 @@
     }
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     background: var(--bg);
     color: var(--text);
     -webkit-font-smoothing: antialiased;
-    padding-bottom: calc(70px + env(safe-area-inset-bottom));
+    /* generous clearance so the last day card is never hidden behind the tab bar */
+    padding-bottom: calc(120px + env(safe-area-inset-bottom));
   }
   header {
     position: sticky; top: 0; z-index: 10;
@@ -50,6 +50,9 @@
   }
   header h1 { font-size: 18px; font-weight: 700; }
   header .sub { font-size: 12px; color: var(--muted); }
+  header .sync { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+  header .sync.ok { color: var(--green); }
+  header .sync.warn { color: var(--amber); }
   main { padding: 14px 14px 20px; max-width: 560px; margin: 0 auto; }
   .tabpage { display: none; }
   .tabpage.active { display: block; }
@@ -238,6 +241,7 @@
     <h1>Pay Tracker</h1>
     <div class="sub" id="headerSub">Mon–Sun week · paid next Friday</div>
   </div>
+  <div class="sync" id="syncStat" aria-live="polite"></div>
 </header>
 
 <main>
@@ -766,6 +770,18 @@ async function cloudPost(payload) {
   return out;
 }
 
+function syncStatus(state) {
+  const el = document.getElementById("syncStat");
+  if (state === "saving") { el.textContent = "☁ Saving…"; el.className = "sync"; }
+  else if (state === "saved") { el.textContent = "✓ Saved"; el.className = "sync ok"; }
+  else if (state === "retry") { el.textContent = "⚠ Will retry"; el.className = "sync warn"; }
+  else { el.textContent = ""; el.className = "sync"; }
+}
+
+function savePayload(stamp) {
+  return { action: "save", entries, savedAt: stamp, headers: HEADERS, rows: buildRows(), monthly: buildMonthly(), currency: settings.cur };
+}
+
 async function cloudSave(manual) {
   if (!settings.webhook) { if (manual) toast("Add your Apps Script URL first (see README)", true); return; }
   if (!Object.keys(entries).length && !meta.editedAt) {
@@ -773,11 +789,14 @@ async function cloudSave(manual) {
     return; /* never overwrite the sheet with a fresh, empty device */
   }
   const stamp = Date.now();
+  syncStatus("saving");
   try {
-    const out = await cloudPost({ action: "save", entries, savedAt: stamp, headers: HEADERS, rows: buildRows(), monthly: buildMonthly(), currency: settings.cur });
+    const out = await cloudPost(savePayload(stamp));
     meta.syncedAt = stamp; saveMeta();
+    syncStatus("saved");
     if (manual) toast("Synced " + out.rows + " days to your Google Sheet ✓");
   } catch (err) {
+    syncStatus("retry"); /* the retry loop below picks it up */
     if (manual) toast("Sync failed: " + err.message, true);
   }
 }
@@ -785,9 +804,29 @@ async function cloudSave(manual) {
 let saveTimer;
 function scheduleCloudSave() {
   if (!settings.webhook) return;
+  syncStatus("saving");
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => cloudSave(false), 2000);
+  saveTimer = setTimeout(() => cloudSave(false), 1000);
 }
+
+/* if the user closes or switches away before the debounce fires, push the
+   data out immediately with a beacon (survives the page being killed) */
+function flushPendingSync() {
+  if (!settings.webhook || meta.editedAt <= meta.syncedAt) return;
+  clearTimeout(saveTimer);
+  const body = JSON.stringify({ ...savePayload(Date.now()), token: ensureToken() });
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon(settings.webhook, new Blob([body], { type: "text/plain" }));
+    /* syncedAt is NOT updated: if the beacon didn't arrive, the next app
+       open re-merges local edits and pushes them again — nothing is lost */
+  }
+}
+window.addEventListener("pagehide", flushPendingSync);
+
+/* safety net: anything still unsynced (e.g. a failed save) retries every 15s */
+setInterval(() => {
+  if (settings.webhook && meta.editedAt > meta.syncedAt && !document.hidden) cloudSave(false);
+}, 15000);
 
 let lastLoadAt = 0;
 async function cloudLoad() {
@@ -806,6 +845,7 @@ async function cloudLoad() {
       saveEntries();
       meta.syncedAt = Date.now(); saveMeta();
       renderAll();
+      if (meta.editedAt <= meta.syncedAt) syncStatus("saved");
     } else if (Object.keys(entries).length) {
       scheduleCloudSave(); /* sheet is empty and we have data: seed it */
     }
@@ -816,7 +856,8 @@ document.getElementById("btnSync").onclick = () => { toast("Syncing…"); cloudS
 
 cloudLoad();
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && Date.now() - lastLoadAt > 60000) cloudLoad();
+  if (document.hidden) { flushPendingSync(); return; }
+  if (Date.now() - lastLoadAt > 60000) cloudLoad();
 });
 
 /* ---------- GitHub backup ---------- */
