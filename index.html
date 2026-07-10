@@ -126,6 +126,35 @@
     font-size: 12px; font-weight: 600;
   }
   .mini.danger { color: var(--danger); padding: 5px 9px; }
+  .time-btn {
+    width: 100%; padding: 10px 6px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--card2); color: var(--text);
+    font-size: 16px; font-family: inherit; min-height: 44px; text-align: center;
+  }
+  .time-btn.blank { color: var(--muted); }
+
+  /* time picker sheet */
+  #pickerOverlay {
+    position: fixed; inset: 0; z-index: 70;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  #pickerOverlay[hidden] { display: none; }
+  .sheet {
+    background: var(--card); border: 1px solid var(--border); border-bottom: none;
+    border-radius: 18px 18px 0 0; width: 100%; max-width: 560px;
+    padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
+  }
+  .sheet-title { font-weight: 700; font-size: 16px; margin-bottom: 14px; text-align: center; }
+  .picker-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .picker-row select {
+    flex: 1; padding: 12px 8px; border-radius: 12px; min-height: 52px;
+    border: 1px solid var(--border); background: var(--card2); color: var(--text);
+    font-size: 20px; font-weight: 700; font-family: inherit; text-align: center;
+    -webkit-appearance: none; appearance: none;
+  }
+  .picker-actions { display: flex; gap: 8px; }
+  .picker-actions .btn { margin-bottom: 0; }
 
   /* months */
   .month-card {
@@ -311,6 +340,22 @@
   <button data-tab="settings"><span class="ico">⚙️</span>Settings</button>
 </nav>
 
+<div id="pickerOverlay" hidden>
+  <div class="sheet">
+    <div class="sheet-title" id="pickerTitle"></div>
+    <div class="picker-row">
+      <select id="pickHour" aria-label="Hour"></select>
+      <select id="pickMin" aria-label="Minutes"></select>
+      <select id="pickAmPm" aria-label="AM or PM"><option>AM</option><option>PM</option></select>
+    </div>
+    <button class="btn green" id="pickerSet">✓ Set time</button>
+    <div class="picker-actions">
+      <button class="btn secondary" id="pickerClear">Clear</button>
+      <button class="btn secondary" id="pickerCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -320,9 +365,12 @@
 const ENTRIES_KEY = "pt_entries_v1";
 const SETTINGS_KEY = "pt_settings_v1";
 
-const defaults = { rate: 20, cur: "$", ot: false, otAfter: 40, otMult: 1.5, webhook: "", ghRepo: "", ghToken: "" };
+const defaults = { rate: 20, cur: "$", ot: false, otAfter: 40, otMult: 1.5, webhook: "", token: "", ghRepo: "", ghToken: "" };
 let settings = { ...defaults, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")) };
 let entries = JSON.parse(localStorage.getItem(ENTRIES_KEY) || "{}");
+/* editedAt: last local change; syncedAt: last successful sheet sync */
+let meta = { editedAt: 0, syncedAt: 0, ...(JSON.parse(localStorage.getItem("pt_meta_v1") || "{}")) };
+function saveMeta() { localStorage.setItem("pt_meta_v1", JSON.stringify(meta)); }
 
 function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
 function saveEntries() { localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries)); }
@@ -465,8 +513,8 @@ function renderWeek() {
       '<div class="top"><div class="name">' + dayNames[i] + "<span>" + fmtShort(d) + '</span></div>' +
       '<div class="pay ' + (mins ? "" : "zero") + '">' + (mins ? money(stats.perDayPay[key]) : "—") + "</div></div>" +
       '<div class="times">' +
-      '<div class="field"><label>Clock in</label><input type="time" data-k="' + key + '" data-f="in" value="' + (e.in || "") + '"></div>' +
-      '<div class="field"><label>Clock out</label><input type="time" data-k="' + key + '" data-f="out" value="' + (e.out || "") + '"></div>' +
+      '<div class="field"><label>Clock in</label><button class="time-btn' + (e.in ? "" : " blank") + '" data-pick="' + key + '" data-field="in">' + (e.in ? fmt12(e.in) : "Set") + "</button></div>" +
+      '<div class="field"><label>Clock out</label><button class="time-btn' + (e.out ? "" : " blank") + '" data-pick="' + key + '" data-field="out">' + (e.out ? fmt12(e.out) : "Set") + "</button></div>" +
       '<div class="field"><label>Break m</label><input type="number" inputmode="numeric" min="0" placeholder="0" data-k="' + key + '" data-f="brk" value="' + (e.brk || "") + '"></div>' +
       "</div>" +
       footHTML(key, e, mins);
@@ -495,20 +543,31 @@ function footHTML(key, e, mins) {
   return '<div class="foot"><span class="hours-line">' + hours + '</span><span class="mini-actions">' + btns + "</span></div>";
 }
 
+function setEntryField(key, field, value) {
+  entries[key] = entries[key] || {};
+  entries[key][field] = value;
+  if (!entries[key].in && !entries[key].out && !entries[key].brk) delete entries[key];
+  entriesChanged();
+}
+function entriesChanged() {
+  saveEntries();
+  meta.editedAt = Date.now();
+  saveMeta();
+  renderAll();
+  scheduleCloudSave();
+}
+
 document.getElementById("dayList").addEventListener("change", ev => {
   const t = ev.target;
   if (!t.dataset.k) return;
-  const key = t.dataset.k;
-  entries[key] = entries[key] || {};
-  entries[key][t.dataset.f] = t.value;
-  if (!entries[key].in && !entries[key].out && !entries[key].brk) delete entries[key];
-  saveEntries();
-  renderAll();
+  setEntryField(t.dataset.k, t.dataset.f, t.value);
 });
 document.getElementById("dayList").addEventListener("click", ev => {
   const btn = ev.target.closest("button");
   if (!btn) return;
-  if (btn.dataset.copy) {
+  if (btn.dataset.pick) {
+    openPicker(btn.dataset.pick, btn.dataset.field);
+  } else if (btn.dataset.copy) {
     const e = entries[btn.dataset.copy] || {};
     clip = { in: e.in || "", out: e.out || "", brk: e.brk || "" };
     localStorage.setItem("pt_clip_v1", JSON.stringify(clip));
@@ -517,14 +576,52 @@ document.getElementById("dayList").addEventListener("click", ev => {
   } else if (btn.dataset.paste) {
     if (!clip) return;
     entries[btn.dataset.paste] = { ...clip };
-    saveEntries();
-    renderAll();
+    entriesChanged();
   } else if (btn.dataset.clear) {
     delete entries[btn.dataset.clear];
-    saveEntries();
-    renderAll();
+    entriesChanged();
   }
 });
+
+/* ---------- time picker sheet (explicit ✓ confirm; scrolling never commits) ---------- */
+const pickerOverlay = document.getElementById("pickerOverlay");
+const pickHour = document.getElementById("pickHour");
+const pickMin = document.getElementById("pickMin");
+const pickAmPm = document.getElementById("pickAmPm");
+pickHour.innerHTML = Array.from({ length: 12 }, (_, i) => "<option>" + (i + 1) + "</option>").join("");
+pickMin.innerHTML = Array.from({ length: 60 }, (_, i) => "<option>" + String(i).padStart(2, "0") + "</option>").join("");
+
+let picking = null; /* {key, field} */
+
+function openPicker(key, field) {
+  picking = { key, field };
+  const e = entries[key] || {};
+  const cur = e[field] || (field === "in" ? "09:00" : "17:00");
+  const [h24, m] = cur.split(":").map(Number);
+  pickHour.value = String((h24 % 12) || 12);
+  pickMin.value = String(m).padStart(2, "0");
+  pickAmPm.value = h24 >= 12 ? "PM" : "AM";
+  const d = fromISO(key);
+  document.getElementById("pickerTitle").textContent =
+    dayNames[(d.getDay() + 6) % 7] + " " + fmtShort(d) + " · " + (field === "in" ? "Clock in" : "Clock out");
+  pickerOverlay.hidden = false;
+}
+function closePicker() { pickerOverlay.hidden = true; picking = null; }
+
+document.getElementById("pickerSet").onclick = () => {
+  if (!picking) return;
+  const h12 = Number(pickHour.value);
+  const h24 = pickAmPm.value === "PM" ? (h12 % 12) + 12 : h12 % 12;
+  setEntryField(picking.key, picking.field, String(h24).padStart(2, "0") + ":" + pickMin.value);
+  closePicker();
+};
+document.getElementById("pickerClear").onclick = () => {
+  if (!picking) return;
+  setEntryField(picking.key, picking.field, "");
+  closePicker();
+};
+document.getElementById("pickerCancel").onclick = closePicker;
+pickerOverlay.addEventListener("click", ev => { if (ev.target === pickerOverlay) closePicker(); });
 document.getElementById("prevWeek").onclick = () => { viewWeekStart = addDays(viewWeekStart, -7); renderWeek(); };
 document.getElementById("nextWeek").onclick = () => { viewWeekStart = addDays(viewWeekStart, 7); renderWeek(); };
 document.getElementById("goToday").onclick = () => { viewWeekStart = mondayOf(new Date()); renderWeek(); };
@@ -561,6 +658,7 @@ function bindSetting(id, key, isNum, onChange) {
     saveSettings();
     if (onChange) onChange();
     renderAll();
+    scheduleCloudSave();
   });
 }
 bindSetting("setRate", "rate", true);
@@ -578,6 +676,7 @@ otToggle.addEventListener("change", () => {
   document.getElementById("otSettings").style.display = settings.ot ? "block" : "none";
   saveSettings();
   renderAll();
+  scheduleCloudSave();
 });
 
 /* ---------- export rows (shared by CSV + sheet sync) ---------- */
@@ -638,28 +737,87 @@ document.getElementById("importFile").addEventListener("change", ev => {
     const data = JSON.parse(txt);
     if (!data.entries) throw new Error("bad file");
     entries = data.entries;
-    saveEntries();
-    renderAll();
+    entriesChanged();
     toast("Data imported: " + Object.keys(entries).length + " days");
   }).catch(() => toast("Could not read that file", true));
   ev.target.value = "";
 });
 
-/* ---------- Google Sheet sync ---------- */
-document.getElementById("btnSync").onclick = async () => {
-  if (!settings.webhook) return toast("Add your Apps Script URL first (see README)", true);
-  const payload = { headers: HEADERS, rows: buildRows(), monthly: buildMonthly(), currency: settings.cur };
-  toast("Syncing…");
-  try {
-    /* text/plain avoids a CORS preflight that Apps Script can't answer */
-    const res = await fetch(settings.webhook, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(payload) });
-    const out = await res.json();
-    if (!out.ok) throw new Error(out.error || "sync failed");
-    toast("Synced " + payload.rows.length + " days to your Google Sheet ✓");
-  } catch (err) {
-    toast("Sync failed: " + err.message, true);
+/* ---------- Google Sheet two-way sync ----------
+   The sheet is the source of truth. On startup the app loads entries from
+   the sheet; every local change is auto-pushed back (debounced). A device
+   with no data can never wipe the sheet. All requests carry a secret token. */
+function ensureToken() {
+  if (!settings.token) {
+    const bytes = new Uint8Array(12);
+    crypto.getRandomValues(bytes);
+    settings.token = Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+    saveSettings();
   }
-};
+  return settings.token;
+}
+
+async function cloudPost(payload) {
+  payload.token = ensureToken();
+  /* text/plain avoids a CORS preflight that Apps Script can't answer */
+  const res = await fetch(settings.webhook, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(payload) });
+  const out = await res.json();
+  if (!out.ok) throw new Error(out.error || "request failed");
+  return out;
+}
+
+async function cloudSave(manual) {
+  if (!settings.webhook) { if (manual) toast("Add your Apps Script URL first (see README)", true); return; }
+  if (!Object.keys(entries).length && !meta.editedAt) {
+    if (manual) toast("Nothing to sync yet — add some times first");
+    return; /* never overwrite the sheet with a fresh, empty device */
+  }
+  const stamp = Date.now();
+  try {
+    const out = await cloudPost({ action: "save", entries, savedAt: stamp, headers: HEADERS, rows: buildRows(), monthly: buildMonthly(), currency: settings.cur });
+    meta.syncedAt = stamp; saveMeta();
+    if (manual) toast("Synced " + out.rows + " days to your Google Sheet ✓");
+  } catch (err) {
+    if (manual) toast("Sync failed: " + err.message, true);
+  }
+}
+
+let saveTimer;
+function scheduleCloudSave() {
+  if (!settings.webhook) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => cloudSave(false), 2000);
+}
+
+let lastLoadAt = 0;
+async function cloudLoad() {
+  if (!settings.webhook) return;
+  lastLoadAt = Date.now();
+  try {
+    const out = await cloudPost({ action: "load" });
+    if (out.entries && typeof out.entries === "object") {
+      const unsyncedLocal = meta.editedAt > meta.syncedAt;
+      if (!Object.keys(entries).length || !unsyncedLocal) {
+        entries = out.entries; /* adopt the sheet's data */
+      } else {
+        entries = { ...out.entries, ...entries }; /* keep local edits not yet synced */
+        scheduleCloudSave();
+      }
+      saveEntries();
+      meta.syncedAt = Date.now(); saveMeta();
+      renderAll();
+    } else if (Object.keys(entries).length) {
+      scheduleCloudSave(); /* sheet is empty and we have data: seed it */
+    }
+  } catch (err) { /* offline or script not deployed yet — keep local data */ }
+}
+
+document.getElementById("btnSync").onclick = () => { toast("Syncing…"); cloudSave(true); };
+
+cloudLoad();
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && Date.now() - lastLoadAt > 60000) cloudLoad();
+});
 
 /* ---------- GitHub backup ---------- */
 async function ghPut(path, contentStr, message) {

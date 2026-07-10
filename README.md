@@ -29,11 +29,12 @@ Your hours and pay data live only on your device, in your Google Sheet, and in t
 
 1. Create a new Google Sheet in your Drive (e.g. "Pay Tracker").
 2. In the sheet: **Extensions → Apps Script**, delete the starter code, paste in [`apps-script/Code.gs`](apps-script/Code.gs), and save.
-3. **Deploy → New deployment → Web app**, with *Execute as: Me* and *Who has access: Anyone*. Authorize when prompted.
+3. **Deploy → New deployment → Web app**, with *Execute as: Me* and *Who has access: Anyone*. Authorize when prompted. (Updating later? **Manage deployments → ✏️ → Version: New version → Deploy** so the URL stays the same.)
 4. Copy the web app URL (ends in `/exec`) and paste it into **Settings → Apps Script web app URL** in the app.
-5. Tap **Sync to Google Sheet** any time — it rewrites two tabs, **Work Log** (every day: times, hours, pay, week, payday) and **Monthly Summary**.
 
-The URL is unguessable but technically public — it only allows writing rows into this one sheet.
+Sync is **two-way and automatic**: when the app opens it loads your data from the sheet, and every edit is pushed back a couple of seconds later. The sheet keeps three tabs: **Work Log** (per day: times, hours, pay, week, payday), **Monthly Summary**, and a hidden **_App Data** tab (raw data the app reads — don't edit it). A new phone with an empty app loads from the sheet instead of overwriting it.
+
+Privacy: every request must carry a secret token. The first token the script ever sees is locked in ("pair on first use"), so only devices set up with your token — via the setup link — can read or write your data.
 
 ## GitHub backup (one time, ~2 minutes)
 
