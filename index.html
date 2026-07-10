@@ -320,6 +320,24 @@ let entries = JSON.parse(localStorage.getItem(ENTRIES_KEY) || "{}");
 function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
 function saveEntries() { localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries)); }
 
+/* one-tap setup link: open the app as .../#cfg=<base64 JSON of settings>
+   to pre-fill settings (e.g. the Google Sheet webhook) without typing */
+try {
+  const cfgMatch = location.hash.match(/^#cfg=(.+)$/);
+  if (cfgMatch) {
+    const cfg = JSON.parse(atob(decodeURIComponent(cfgMatch[1])));
+    let applied = 0;
+    for (const k in defaults) {
+      if (cfg[k] !== undefined && typeof cfg[k] === typeof defaults[k]) { settings[k] = cfg[k]; applied++; }
+    }
+    if (applied) {
+      saveSettings();
+      setTimeout(() => toast("Setup link applied — settings saved ✓"), 500);
+    }
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+} catch (e) { /* malformed setup link: ignore */ }
+
 /* ---------- dates ---------- */
 const DAY_MS = 86400000;
 const dayNames = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
