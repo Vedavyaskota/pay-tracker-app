@@ -184,6 +184,13 @@
     border: 1px solid var(--border); background: var(--card2); color: var(--text);
     font-size: 16px; min-height: 44px; /* 16px prevents iOS focus zoom */
   }
+  .rc-row { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; }
+  .rc-row input {
+    flex: 1; min-width: 0; padding: 10px 8px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--card2); color: var(--text);
+    font-size: 16px; font-family: inherit; min-height: 44px; -webkit-appearance: none; appearance: none;
+  }
+  .rc-row .mini.danger { flex-shrink: 0; }
   .switch-row { display: flex; justify-content: space-between; align-items: center; }
   .switch-row label { margin-bottom: 0; }
   input[type=checkbox].toggle {
@@ -295,6 +302,12 @@
         <input type="number" id="setRate" inputmode="decimal" step="0.01" min="0">
       </div>
       <div class="setting">
+        <label>Pay raises / rate changes</label>
+        <div id="rateChangesList"></div>
+        <button class="mini" id="addRateChange" type="button">＋ Add rate change</button>
+        <div class="hint">Getting a raise? Add the start date and the new rate — days from that date use the new rate, earlier days keep the old one. Past months never change.</div>
+      </div>
+      <div class="setting">
         <label for="setCur">Currency symbol</label>
         <input type="text" id="setCur" maxlength="4">
       </div>
@@ -379,7 +392,9 @@
 const ENTRIES_KEY = "pt_entries_v1";
 const SETTINGS_KEY = "pt_settings_v1";
 
-const defaults = { rate: 20, cur: "$", ot: false, otAfter: 40, otMult: 1.5, webhook: "", token: "", ghRepo: "", ghToken: "" };
+/* rateChanges: [{from:"2026-08-01", rate:25}, …] — the new rate applies to
+   that day and onward; days before keep the previous rate */
+const defaults = { rate: 20, cur: "$", ot: false, otAfter: 40, otMult: 1.5, rateChanges: [], webhook: "", token: "", ghRepo: "", ghToken: "" };
 let settings = { ...defaults, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")) };
 let entries = JSON.parse(localStorage.getItem(ENTRIES_KEY) || "{}");
 /* editedAt: last local change; syncedAt: last successful sheet sync */
@@ -447,6 +462,16 @@ function money(n) {
   return settings.cur + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/* hourly rate in effect on a given day (rate changes apply from their date on) */
+function rateFor(dayISO) {
+  let r = settings.rate;
+  const changes = (settings.rateChanges || [])
+    .filter(c => c && c.from && Number(c.rate) > 0)
+    .sort((a, b) => (a.from < b.from ? -1 : 1));
+  for (const c of changes) if (c.from <= dayISO) r = Number(c.rate);
+  return r;
+}
+
 /* returns { hours, regHours, otHours, pay, perDayPay: {iso: pay} } for a week */
 function weekStats(weekStart) {
   let totalMin = 0;
@@ -458,15 +483,20 @@ function weekStats(weekStart) {
     totalMin += m;
   }
   const hours = totalMin / 60;
-  let regHours = hours, otHours = 0;
-  if (settings.ot && hours > settings.otAfter) {
-    regHours = settings.otAfter;
-    otHours = hours - settings.otAfter;
-  }
-  const pay = regHours * settings.rate + otHours * settings.rate * settings.otMult;
-  /* distribute week pay across days proportional to hours (matters when OT is on) */
+  /* each day is paid at the rate in effect on that day */
+  let basePay = 0;
+  for (const k in dayMin) basePay += (dayMin[k] / 60) * rateFor(k);
+  let otHours = 0;
+  if (settings.ot && hours > settings.otAfter) otHours = hours - settings.otAfter;
+  const regHours = hours - otHours;
+  /* OT premium uses the week's average rate (fair when a raise lands mid-week) */
+  const avgRate = hours ? basePay / hours : 0;
+  const otExtra = otHours * avgRate * (settings.otMult - 1);
+  const pay = basePay + otExtra;
   const perDayPay = {};
-  for (const k in dayMin) perDayPay[k] = totalMin ? pay * (dayMin[k] / totalMin) : 0;
+  for (const k in dayMin) {
+    perDayPay[k] = (dayMin[k] / 60) * rateFor(k) + (totalMin ? otExtra * (dayMin[k] / totalMin) : 0);
+  }
   return { hours, regHours, otHours, pay, dayMin, perDayPay };
 }
 
@@ -667,17 +697,61 @@ function renderMonths() {
 }
 
 /* ---------- settings ---------- */
+const PAY_KEYS = ["rate", "cur", "ot", "otAfter", "otMult", "rateChanges"];
+
 function bindSetting(id, key, isNum, onChange) {
   const el = document.getElementById(id);
   el.value = settings[key];
   el.addEventListener("change", () => {
     settings[key] = isNum ? (Number(el.value) || 0) : el.value.trim();
+    if (PAY_KEYS.includes(key)) settings.psUpdatedAt = Date.now();
     saveSettings();
     if (onChange) onChange();
     renderAll();
     scheduleCloudSave();
   });
 }
+
+/* ---- pay raises / rate changes ---- */
+function renderRateChanges() {
+  const list = document.getElementById("rateChangesList");
+  const rcs = settings.rateChanges || [];
+  list.innerHTML = rcs.map((c, i) =>
+    '<div class="rc-row">' +
+    '<input type="date" aria-label="New rate starts on" data-rci="' + i + '" data-rcf="from" value="' + (c.from || "") + '">' +
+    '<input type="number" aria-label="New hourly rate" inputmode="decimal" step="0.01" min="0" placeholder="new rate" data-rci="' + i + '" data-rcf="rate" value="' + (c.rate || "") + '">' +
+    '<button class="mini danger" type="button" data-rcdel="' + i + '" aria-label="Remove rate change">✕</button>' +
+    "</div>"
+  ).join("");
+}
+function paySettingsChanged() {
+  settings.psUpdatedAt = Date.now();
+  saveSettings();
+  renderAll();
+  scheduleCloudSave();
+}
+document.getElementById("rateChangesList").addEventListener("change", ev => {
+  const t = ev.target;
+  if (t.dataset.rci === undefined) return;
+  const c = settings.rateChanges[Number(t.dataset.rci)];
+  if (!c) return;
+  c[t.dataset.rcf] = t.dataset.rcf === "rate" ? (Number(t.value) || 0) : t.value;
+  paySettingsChanged();
+});
+document.getElementById("rateChangesList").addEventListener("click", ev => {
+  const b = ev.target.closest("button");
+  if (!b || b.dataset.rcdel === undefined) return;
+  settings.rateChanges.splice(Number(b.dataset.rcdel), 1);
+  paySettingsChanged();
+  renderRateChanges();
+});
+document.getElementById("addRateChange").onclick = () => {
+  settings.rateChanges = settings.rateChanges || [];
+  settings.rateChanges.push({ from: "", rate: "" });
+  saveSettings();
+  renderRateChanges();
+};
+renderRateChanges();
 bindSetting("setRate", "rate", true);
 bindSetting("setCur", "cur", false);
 bindSetting("setOTAfter", "otAfter", true);
@@ -690,6 +764,7 @@ otToggle.checked = settings.ot;
 document.getElementById("otSettings").style.display = settings.ot ? "block" : "none";
 otToggle.addEventListener("change", () => {
   settings.ot = otToggle.checked;
+  settings.psUpdatedAt = Date.now();
   document.getElementById("otSettings").style.display = settings.ot ? "block" : "none";
   saveSettings();
   renderAll();
@@ -792,6 +867,11 @@ function syncStatus(state) {
 }
 
 function savePayload(stamp) {
+  /* pay settings ride along inside the synced data under a special key,
+     so every connected device uses the same rates (no script change needed) */
+  entries.__ps = Object.fromEntries(PAY_KEYS.map(k => [k, settings[k]]));
+  entries.__ps.updatedAt = settings.psUpdatedAt || 0;
+  saveEntries();
   return { action: "save", entries, savedAt: stamp, headers: HEADERS, rows: buildRows(), monthly: buildMonthly(), currency: settings.cur };
 }
 
@@ -841,6 +921,22 @@ setInterval(() => {
   if (settings.webhook && meta.editedAt > meta.syncedAt && !document.hidden) cloudSave(false);
 }, 15000);
 
+/* another device changed the rate settings more recently: take theirs */
+function adoptRemotePaySettings(ps) {
+  if (!ps || (ps.updatedAt || 0) <= (settings.psUpdatedAt || 0)) return;
+  PAY_KEYS.forEach(k => { if (ps[k] !== undefined) settings[k] = ps[k]; });
+  settings.psUpdatedAt = ps.updatedAt;
+  saveSettings();
+  /* refresh the settings inputs to match */
+  document.getElementById("setRate").value = settings.rate;
+  document.getElementById("setCur").value = settings.cur;
+  document.getElementById("setOTAfter").value = settings.otAfter;
+  document.getElementById("setOTMult").value = settings.otMult;
+  otToggle.checked = settings.ot;
+  document.getElementById("otSettings").style.display = settings.ot ? "block" : "none";
+  renderRateChanges();
+}
+
 let lastLoadAt = 0;
 async function cloudLoad() {
   if (!settings.webhook) return;
@@ -856,6 +952,7 @@ async function cloudLoad() {
         scheduleCloudSave();
       }
       saveEntries();
+      adoptRemotePaySettings(out.entries.__ps);
       meta.syncedAt = Date.now(); saveMeta();
       renderAll();
       if (meta.editedAt <= meta.syncedAt) syncStatus("saved");
